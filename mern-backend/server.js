@@ -10,7 +10,14 @@ const { apiLimiter } = require('./middleware/rateLimit');
 
 const app = express();
 app.use(helmet());
-const allowedOrigins = [process.env.FRONTEND_URL, 'http://localhost:8080', 'http://localhost:8083', 'http://127.0.0.1:8080', 'http://127.0.0.1:8083'].filter(Boolean);
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'https://nova-frontend-jmwy.onrender.com',
+  'http://localhost:8080',
+  'http://localhost:8083',
+  'http://127.0.0.1:8080',
+  'http://127.0.0.1:8083'
+].filter(Boolean);
 app.use(cors({ origin: (origin, cb) => cb(null, !origin || allowedOrigins.includes(origin)), credentials: true }));
 app.use(express.json({ limit: '1mb' }));
 app.use(morgan('dev'));
