@@ -47,4 +47,7 @@ io.on('connection', (s) => {
 const PORT = process.env.PORT || 5000;
 connectDB().then(() => {
   server.listen(PORT, () => console.log(`API running on :${PORT}`));
+}).catch((error) => {
+  console.error('Failed to start API:', error);
+  process.exit(1);
 });
