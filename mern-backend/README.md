@@ -2,6 +2,10 @@
 
 Companion backend for the Nova crypto investment frontend.
 
+Detailed wallet, deposit, OTP, and transaction debugging notes are stored at:
+
+- `C:\Users\vansh\Desktop\crypto-project-v1\PROJECT_DEBUG_QA.md`
+
 ## Stack
 Node + Express + MongoDB (Mongoose) + Socket.io + ethers.js (BEP20) + Nodemailer (Gmail OTP) + JWT.
 

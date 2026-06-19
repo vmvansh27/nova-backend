@@ -4,6 +4,8 @@ const User = require('../models/User');
 const Withdrawal = require('../models/Withdrawal');
 const Transaction = require('../models/Transaction');
 const AdminSettings = require('../models/AdminSettings');
+const WalletLog = require('../models/WalletLog');
+const { sendWithdrawal } = require('../utils/bsc');
 
 router.use(auth, admin);
 
@@ -24,13 +26,24 @@ router.get('/withdrawals', async (_req, res) => {
 });
 
 router.post('/withdrawals/:id/approve', async (req, res) => {
-  const w = await Withdrawal.findById(req.params.id);
-  if (!w) return res.status(404).end();
-  if (w.status !== 'pending') return res.status(400).json({ error: 'Withdrawal already reviewed' });
-  w.status = 'approved'; w.reviewedBy = req.user._id; w.reviewedAt = new Date();
-  await w.save();
-  await Transaction.findOneAndUpdate({ user: w.user, type: 'withdraw', amount: w.amount, status: 'pending' }, { status: 'completed' });
-  res.json({ ok: true });
+  try {
+    const w = await Withdrawal.findById(req.params.id);
+    if (!w) return res.status(404).end();
+    if (w.status !== 'pending') return res.status(400).json({ error: 'Withdrawal already reviewed' });
+    const transfer = process.env.DEMO_MODE === 'true'
+      ? { hash: 'demo-' + Date.now(), status: 'processed' }
+      : await sendWithdrawal({ to: w.address, amount: w.amount });
+    if (transfer.status !== 'processed') return res.status(502).json({ error: 'Blockchain withdrawal failed' });
+    w.status = 'processed'; w.txHash = transfer.hash; w.reviewedBy = req.user._id; w.reviewedAt = new Date();
+    await w.save();
+    await WalletLog.create({ user: w.user, direction: 'out', amount: w.amount, hash: transfer.hash, to: w.address, status: 'confirmed' });
+    await Transaction.findOneAndUpdate({ user: w.user, type: 'withdraw', amount: w.amount, status: 'pending' }, { status: 'completed', hash: transfer.hash });
+    res.json({ ok: true, txHash: transfer.hash });
+  } catch (error) {
+    console.error('[admin][approve-withdrawal]', error.message);
+    const status = /HOT_WALLET_PRIVATE_KEY|required|Invalid withdrawal address|TOKEN_CONTRACT_ADDRESS/i.test(error.message) ? 400 : 500;
+    res.status(status).json({ error: error.message || 'Withdrawal approval failed' });
+  }
 });
 
 router.post('/withdrawals/:id/reject', async (req, res) => {
