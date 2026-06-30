@@ -4,7 +4,7 @@ const transporter = nodemailer.createTransport({
   secure: false, auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
 });
 exports.sendOtp = async (to, code) => {
-  await transporter.sendMail({
+  return transporter.sendMail({
     from: `"Nova" <${process.env.SMTP_USER}>`, to,
     subject: 'Your Nova login code',
     html: `<p>Your one-time code is <strong style="font-size:24px">${code}</strong>. Valid for 5 minutes.</p>`,

@@ -7,6 +7,7 @@ module.exports = model('NFT', new Schema({
   price: { type: Number, required: true },
   currency: { type: String, default: 'BNB' },
   owner: { type: Schema.Types.ObjectId, ref: 'User' },
+  createdBy: { type: Schema.Types.ObjectId, ref: 'User' },
   listed: { type: Boolean, default: true },
   tokenId: String,
   contractAddress: String,

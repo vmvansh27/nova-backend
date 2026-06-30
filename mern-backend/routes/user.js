@@ -1,7 +1,11 @@
 const router = require('express').Router();
+const { body, validationResult } = require('express-validator');
 const { auth } = require('../middleware/auth');
 const Investment = require('../models/Investment');
 const Transaction = require('../models/Transaction');
+const Post = require('../models/Post');
+const Notification = require('../models/Notification');
+const KycSubmission = require('../models/KycSubmission');
 const { getPlatformDepositAddress } = require('../utils/bsc');
 
 router.get('/me', auth, async (req, res) => {
@@ -21,5 +25,53 @@ router.get('/me', auth, async (req, res) => {
     investments, transactions: txs,
   });
 });
+
+router.get('/home-feed', auth, async (_req, res) => {
+  const [posts, notifications] = await Promise.all([
+    Post.find({ published: true }).sort('-createdAt').limit(10),
+    Notification.find({ active: true }).sort('-createdAt').limit(10),
+  ]);
+  res.json({ posts, notifications });
+});
+
+router.get('/kyc', auth, async (req, res) => {
+  const submission = await KycSubmission.findOne({ user: req.user._id }).sort('-updatedAt');
+  res.json({
+    status: req.user.kycStatus,
+    submission,
+  });
+});
+
+router.post('/kyc', auth,
+  body('fullName').trim().notEmpty(),
+  body('phone').trim().notEmpty(),
+  body('country').trim().notEmpty(),
+  body('documentType').trim().notEmpty(),
+  body('documentNumber').trim().notEmpty(),
+  body('documentFrontUrl').trim().isURL(),
+  body('documentBackUrl').optional({ values: 'falsy' }).trim().isURL(),
+  body('selfieUrl').optional({ values: 'falsy' }).trim().isURL(),
+  async (req, res) => {
+    const errs = validationResult(req); if (!errs.isEmpty()) return res.status(400).json({ errors: errs.array() });
+    const existing = await KycSubmission.findOne({ user: req.user._id });
+    if (existing?.status === 'approved') {
+      return res.status(400).json({ error: 'KYC is already approved for this account' });
+    }
+    const submission = await KycSubmission.findOneAndUpdate(
+      { user: req.user._id },
+      {
+        user: req.user._id,
+        ...req.body,
+        status: 'pending',
+        rejectionReason: undefined,
+        reviewedBy: undefined,
+        reviewedAt: undefined,
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+    req.user.kycStatus = 'pending';
+    await req.user.save();
+    res.json({ ok: true, submission, status: req.user.kycStatus });
+  });
 
 module.exports = router;

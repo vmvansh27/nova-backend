@@ -10,6 +10,7 @@ const userSchema = new Schema({
   referralCode: { type: String, unique: true, sparse: true },
   referredBy: { type: Schema.Types.ObjectId, ref: 'User' },
   walletAddress: String, // BEP20 deposit address (derived/assigned)
+  kycStatus: { type: String, enum: ['not_started', 'pending', 'approved', 'rejected'], default: 'not_started' },
   otp: { code: String, expiresAt: Date },
 }, { timestamps: true });
 module.exports = model('User', userSchema);

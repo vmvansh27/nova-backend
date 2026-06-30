@@ -38,7 +38,24 @@ router.post('/request-otp', otpLimiter,
     const expiresAt = new Date(Date.now() + 5 * 60_000);
     await User.findOneAndUpdate({ email }, { email, ...(isAdmin ? { isAdmin: true } : {}), otp: { code, expiresAt } }, { upsert: true });
     if (!useDemoOtp) {
-      try { await sendOtp(email, code); } catch (e) { console.error('mail error', e.message); }
+      try {
+        const info = await sendOtp(email, code);
+        console.log('[auth][mail-sent]', {
+          email,
+          messageId: info.messageId,
+          accepted: info.accepted,
+          rejected: info.rejected,
+          response: info.response,
+        });
+      } catch (e) {
+        console.error('[auth][mail-error]', {
+          email,
+          message: e.message,
+          response: e.response,
+          code: e.code,
+        });
+        return res.status(502).json({ error: 'OTP email could not be sent. Check SMTP settings or recipient inbox.' });
+      }
     }
     res.json({ ok: true, demoCode: useDemoOtp ? code : undefined });
   }
