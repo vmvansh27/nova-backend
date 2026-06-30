@@ -27,6 +27,7 @@ const connectDB = require('./config/db');
 const { apiLimiter } = require('./middleware/rateLimit');
 
 const app = express();
+app.set('trust proxy', 1);
 app.use(helmet());
 const allowedOrigins = [
   process.env.FRONTEND_URL,
