@@ -6,32 +6,56 @@ const Transaction = require('../models/Transaction');
 const Post = require('../models/Post');
 const Notification = require('../models/Notification');
 const KycSubmission = require('../models/KycSubmission');
+const NFT = require('../models/NFT');
+const SocialLink = require('../models/SocialLink');
+const RoadmapItem = require('../models/RoadmapItem');
 const { getPlatformDepositAddress } = require('../utils/bsc');
+const { syncUserLevel, getSettings } = require('../utils/levels');
+const { settleDueInvestmentsForUser } = require('../utils/investmentSettlement');
 
 router.get('/me', auth, async (req, res) => {
+  await settleDueInvestmentsForUser(req.user._id);
+  const freshUser = req.user.constructor ? await req.user.constructor.findById(req.user._id) : req.user;
+  const levelInfo = await syncUserLevel(freshUser);
   const investments = await Investment.find({ user: req.user._id, status: 'active' }).sort('-createdAt');
   const txs = await Transaction.find({ user: req.user._id }).sort('-createdAt').limit(20);
+  const ownedNfts = await NFT.find({ owner: req.user._id }).sort('-updatedAt');
   res.json({
     user: {
-      ...req.user.toObject(),
+      ...freshUser.toObject(),
       walletAddress: getPlatformDepositAddress(),
       platformWalletAddress: getPlatformDepositAddress(),
       assetMode: (process.env.WALLET_ASSET_MODE || 'native').toLowerCase(),
+      currentLevel: levelInfo.level.name,
+      levelLimits: {
+        minWalletBalance: levelInfo.level.minWalletBalance,
+        maxInvest: levelInfo.level.maxInvest,
+      },
+      teamMetrics: levelInfo.metrics,
     },
-    balance: req.user.balance,
-    invested: req.user.invested,
-    profit: req.user.profit,
-    referralEarnings: req.user.referralEarnings,
-    investments, transactions: txs,
+    balance: freshUser.balance,
+    invested: freshUser.invested,
+    profit: freshUser.profit,
+    referralEarnings: freshUser.referralEarnings,
+    investments, transactions: txs, ownedNfts,
   });
 });
 
 router.get('/home-feed', auth, async (_req, res) => {
-  const [posts, notifications] = await Promise.all([
+  const [posts, notifications, socialLinks, roadmap] = await Promise.all([
     Post.find({ published: true }).sort('-createdAt').limit(10),
     Notification.find({ active: true }).sort('-createdAt').limit(10),
+    SocialLink.find({ active: true }).sort({ order: 1, createdAt: -1 }).limit(12),
+    RoadmapItem.find({ active: true }).sort({ order: 1, createdAt: -1 }).limit(12),
   ]);
-  res.json({ posts, notifications });
+  res.json({ posts, notifications, socialLinks, roadmap });
+});
+
+router.get('/platform-config', auth, async (_req, res) => {
+  const settings = await getSettings();
+  res.json({
+    withdrawalFeePercent: Number(settings.withdrawalFeePercent || 0),
+  });
 });
 
 router.get('/kyc', auth, async (req, res) => {

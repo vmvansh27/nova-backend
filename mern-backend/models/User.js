@@ -9,6 +9,7 @@ const userSchema = new Schema({
   referralEarnings: { type: Number, default: 0 },
   referralCode: { type: String, unique: true, sparse: true },
   referredBy: { type: Schema.Types.ObjectId, ref: 'User' },
+  currentLevel: { type: String, default: 'Level 1' },
   walletAddress: String, // BEP20 deposit address (derived/assigned)
   kycStatus: { type: String, enum: ['not_started', 'pending', 'approved', 'rejected'], default: 'not_started' },
   otp: { code: String, expiresAt: Date },

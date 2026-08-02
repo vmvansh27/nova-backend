@@ -9,6 +9,7 @@ const { generateOtp } = require('../utils/otp');
 const { sendOtp } = require('../utils/mailer');
 const { generateDepositAddress, getPlatformDepositAddress } = require('../utils/bsc');
 const { otpLimiter } = require('../middleware/rateLimit');
+const { syncUserLevel, getSettings } = require('../utils/levels');
 
 function getDemoOtpEmails() {
   return (process.env.DEMO_OTP_EMAILS || '')
@@ -78,7 +79,7 @@ router.post('/verify-otp',
 
     let isNew = !user.referralCode;
     if (isNew) {
-      const settings = (await AdminSettings.findOne({ key: 'global' })) || await AdminSettings.create({ key: 'global' });
+      const settings = await getSettings();
       user.referralCode = 'REF' + Math.random().toString(36).slice(2, 8).toUpperCase();
       user.walletAddress = generateDepositAddress();
       user.balance = settings.signupBonus;
@@ -87,18 +88,49 @@ router.post('/verify-otp',
       if (referralCode) {
         const referrer = await User.findOne({ referralCode });
         if (referrer && referrer._id.toString() !== user._id.toString()) {
-          const reward = +(settings.signupBonus * settings.referralBonusPercent / 100).toFixed(4);
           user.referredBy = referrer._id;
-          referrer.balance += reward;
-          referrer.referralEarnings += reward;
-          await referrer.save();
-          await Referral.create({ referrer: referrer._id, referred: user._id, reward });
-          await Transaction.create({ user: referrer._id, type: 'referral', amount: reward, status: 'completed', note: `Referral reward for ${user.email}` });
+          await Referral.create({ referrer: referrer._id, referred: user._id, reward: 0 });
+
+          const rewardTargets = [
+            { target: referrer, label: 'A', percentKey: 'directReferralPercent' },
+          ];
+          if (referrer.referredBy) {
+            const tierB = await User.findById(referrer.referredBy);
+            if (tierB) rewardTargets.push({ target: tierB, label: 'B', percentKey: 'tierBReferralPercent' });
+            if (tierB?.referredBy) {
+              const tierC = await User.findById(tierB.referredBy);
+              if (tierC) rewardTargets.push({ target: tierC, label: 'C', percentKey: 'tierCReferralPercent' });
+            }
+          }
+
+          for (const rewardTarget of rewardTargets) {
+            const { level } = await syncUserLevel(rewardTarget.target);
+            const pct = Number(level[rewardTarget.percentKey] || 0);
+            if (pct <= 0) continue;
+            const reward = +(settings.signupBonus * pct / 100).toFixed(4);
+            rewardTarget.target.balance += reward;
+            rewardTarget.target.referralEarnings += reward;
+            await rewardTarget.target.save();
+            await Transaction.create({
+              user: rewardTarget.target._id,
+              type: 'referral',
+              amount: reward,
+              status: 'completed',
+              note: `Level ${rewardTarget.label} referral reward for ${user.email}`,
+            });
+            if (rewardTarget.label === 'A') {
+              await Referral.findOneAndUpdate(
+                { referrer: rewardTarget.target._id, referred: user._id },
+                { reward },
+              );
+            }
+          }
         }
       }
     }
     user.otp = undefined;
     await user.save();
+    await syncUserLevel(user);
 
     const token = sign(user._id.toString());
     res.json({

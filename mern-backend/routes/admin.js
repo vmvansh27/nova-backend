@@ -10,6 +10,8 @@ const Post = require('../models/Post');
 const Notification = require('../models/Notification');
 const KycSubmission = require('../models/KycSubmission');
 const InvestmentPlan = require('../models/InvestmentPlan');
+const SocialLink = require('../models/SocialLink');
+const RoadmapItem = require('../models/RoadmapItem');
 const { sendWithdrawal } = require('../utils/bsc');
 
 router.use(auth, admin);
@@ -141,6 +143,48 @@ router.delete('/notifications/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
+router.get('/social-links', async (_req, res) => {
+  res.json(await SocialLink.find().sort({ order: 1, createdAt: -1 }));
+});
+
+router.post('/social-links', async (req, res) => {
+  const link = await SocialLink.create({ ...req.body, createdBy: req.user._id });
+  res.json(link);
+});
+
+router.put('/social-links/:id', async (req, res) => {
+  const link = await SocialLink.findByIdAndUpdate(req.params.id, req.body, { new: true });
+  if (!link) return res.status(404).end();
+  res.json(link);
+});
+
+router.delete('/social-links/:id', async (req, res) => {
+  const link = await SocialLink.findByIdAndDelete(req.params.id);
+  if (!link) return res.status(404).end();
+  res.json({ ok: true });
+});
+
+router.get('/roadmap', async (_req, res) => {
+  res.json(await RoadmapItem.find().sort({ order: 1, createdAt: -1 }));
+});
+
+router.post('/roadmap', async (req, res) => {
+  const item = await RoadmapItem.create({ ...req.body, createdBy: req.user._id });
+  res.json(item);
+});
+
+router.put('/roadmap/:id', async (req, res) => {
+  const item = await RoadmapItem.findByIdAndUpdate(req.params.id, req.body, { new: true });
+  if (!item) return res.status(404).end();
+  res.json(item);
+});
+
+router.delete('/roadmap/:id', async (req, res) => {
+  const item = await RoadmapItem.findByIdAndDelete(req.params.id);
+  if (!item) return res.status(404).end();
+  res.json({ ok: true });
+});
+
 router.get('/kyc', async (_req, res) => {
   res.json(await KycSubmission.find().populate('user', 'email kycStatus').sort('-updatedAt'));
 });
@@ -181,7 +225,10 @@ router.post('/withdrawals/:id/approve', async (req, res) => {
     w.status = 'processed'; w.txHash = transfer.hash; w.reviewedBy = req.user._id; w.reviewedAt = new Date();
     await w.save();
     await WalletLog.create({ user: w.user, direction: 'out', amount: w.amount, hash: transfer.hash, to: w.address, status: 'confirmed' });
-    await Transaction.findOneAndUpdate({ user: w.user, type: 'withdraw', amount: w.amount, status: 'pending' }, { status: 'completed', hash: transfer.hash });
+    await Transaction.findOneAndUpdate(
+      { user: w.user, type: 'withdraw', status: 'pending', note: { $regex: `withdrawal:${w._id}` } },
+      { status: 'completed', hash: transfer.hash },
+    );
     res.json({ ok: true, txHash: transfer.hash });
   } catch (error) {
     console.error('[admin][approve-withdrawal]', error.message);
@@ -197,8 +244,11 @@ router.post('/withdrawals/:id/reject', async (req, res) => {
   w.status = 'rejected'; w.reviewedBy = req.user._id; w.reviewedAt = new Date();
   await w.save();
   // refund
-  const user = await User.findById(w.user); user.balance += w.amount; await user.save();
-  await Transaction.findOneAndUpdate({ user: w.user, type: 'withdraw', amount: w.amount, status: 'pending' }, { status: 'rejected' });
+  const user = await User.findById(w.user); user.balance += w.grossAmount || w.amount; await user.save();
+  await Transaction.findOneAndUpdate(
+    { user: w.user, type: 'withdraw', status: 'pending', note: { $regex: `withdrawal:${w._id}` } },
+    { status: 'rejected' },
+  );
   res.json({ ok: true });
 });
 
