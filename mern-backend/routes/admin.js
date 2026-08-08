@@ -12,6 +12,8 @@ const KycSubmission = require('../models/KycSubmission');
 const InvestmentPlan = require('../models/InvestmentPlan');
 const SocialLink = require('../models/SocialLink');
 const RoadmapItem = require('../models/RoadmapItem');
+const Investment = require('../models/Investment');
+const Referral = require('../models/Referral');
 const { sendWithdrawal } = require('../utils/bsc');
 
 router.use(auth, admin);
@@ -20,6 +22,66 @@ router.get('/users', async (req, res) => {
   const search = (req.query.search || '').trim();
   const filter = search ? { email: { $regex: search, $options: 'i' } } : {};
   res.json(await User.find(filter).select('-otp').sort('-createdAt'));
+});
+
+router.get('/users/:id/details', async (req, res) => {
+  const target = await User.findById(req.params.id).select('-otp');
+  if (!target) return res.status(404).json({ error: 'User not found' });
+  const [transactions, investments, withdrawals, walletLogs] = await Promise.all([
+    Transaction.find({ user: target._id }).sort('-createdAt').limit(200),
+    Investment.find({ user: target._id }).sort('-createdAt').limit(100),
+    Withdrawal.find({ user: target._id }).sort('-createdAt').limit(100),
+    WalletLog.find({ user: target._id }).sort('-createdAt').limit(100),
+  ]);
+
+  const dailySeries = new Map();
+  for (let offset = 29; offset >= 0; offset -= 1) {
+    const day = new Date();
+    day.setHours(0, 0, 0, 0);
+    day.setDate(day.getDate() - offset);
+    const key = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+    dailySeries.set(key, { date: key, deposits: 0, withdrawals: 0, investments: 0, profits: 0 });
+  }
+
+  for (const tx of transactions) {
+    const day = new Date(tx.createdAt);
+    const key = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+    const entry = dailySeries.get(key);
+    if (!entry) continue;
+    if (tx.type === 'deposit') entry.deposits += tx.amount;
+    if (tx.type === 'withdraw') entry.withdrawals += tx.amount;
+    if (tx.type === 'investment') entry.investments += tx.amount;
+    if (tx.type === 'profit') entry.profits += tx.amount;
+  }
+
+  res.json({
+    user: target,
+    transactions,
+    investments,
+    withdrawals,
+    walletLogs,
+    chart: Array.from(dailySeries.values()),
+  });
+});
+
+router.delete('/users/by-email', async (req, res) => {
+  const email = (req.body.email || '').trim().toLowerCase();
+  if (!email) return res.status(400).json({ error: 'Email is required' });
+  const target = await User.findOne({ email });
+  if (!target) return res.status(404).json({ error: 'User not found' });
+  if (target.isAdmin) return res.status(400).json({ error: 'Admin accounts cannot be deleted here' });
+
+  await Promise.all([
+    Transaction.deleteMany({ user: target._id }),
+    Investment.deleteMany({ user: target._id }),
+    Withdrawal.deleteMany({ user: target._id }),
+    WalletLog.deleteMany({ user: target._id }),
+    KycSubmission.deleteMany({ user: target._id }),
+    Referral.deleteMany({ $or: [{ referrer: target._id }, { referred: target._id }] }),
+    NFT.updateMany({ owner: target._id }, { $set: { owner: null, listed: true } }),
+  ]);
+  await User.deleteOne({ _id: target._id });
+  res.json({ ok: true });
 });
 
 router.post('/users/:id/adjust-balance', async (req, res) => {
@@ -72,6 +134,9 @@ router.delete('/investment-plans/:id', async (req, res) => {
 });
 
 router.put('/settings', async (req, res) => {
+  if (req.body.adminWallet && !/^0x[a-fA-F0-9]{40}$/.test(req.body.adminWallet)) {
+    return res.status(400).json({ error: 'Main deposit wallet must be a valid 0x wallet address' });
+  }
   const s = await AdminSettings.findOneAndUpdate({ key: 'global' }, req.body, { upsert: true, new: true });
   res.json(s);
 });

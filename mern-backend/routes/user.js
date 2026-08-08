@@ -20,11 +20,12 @@ router.get('/me', auth, async (req, res) => {
   const investments = await Investment.find({ user: req.user._id, status: 'active' }).sort('-createdAt');
   const txs = await Transaction.find({ user: req.user._id }).sort('-createdAt').limit(20);
   const ownedNfts = await NFT.find({ owner: req.user._id }).sort('-updatedAt');
+  const platformWalletAddress = await getPlatformDepositAddress();
   res.json({
     user: {
       ...freshUser.toObject(),
-      walletAddress: getPlatformDepositAddress(),
-      platformWalletAddress: getPlatformDepositAddress(),
+      walletAddress: platformWalletAddress,
+      platformWalletAddress,
       assetMode: (process.env.WALLET_ASSET_MODE || 'native').toLowerCase(),
       currentLevel: levelInfo.level.name,
       levelLimits: {

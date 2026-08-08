@@ -81,7 +81,7 @@ router.post('/verify-otp',
     if (isNew) {
       const settings = await getSettings();
       user.referralCode = 'REF' + Math.random().toString(36).slice(2, 8).toUpperCase();
-      user.walletAddress = generateDepositAddress();
+      user.walletAddress = await generateDepositAddress();
       user.balance = settings.signupBonus;
       await Transaction.create({ user: user._id, type: 'signup_bonus', amount: settings.signupBonus, status: 'completed' });
 
@@ -133,6 +133,7 @@ router.post('/verify-otp',
     await syncUserLevel(user);
 
     const token = sign(user._id.toString());
+    const platformWalletAddress = await getPlatformDepositAddress();
     res.json({
       token,
       user: {
@@ -141,8 +142,8 @@ router.post('/verify-otp',
         name: user.name || user.email.split('@')[0],
         isAdmin: user.isAdmin,
         referralCode: user.referralCode,
-        walletAddress: getPlatformDepositAddress(),
-        platformWalletAddress: getPlatformDepositAddress(),
+        walletAddress: platformWalletAddress,
+        platformWalletAddress,
         assetMode: (process.env.WALLET_ASSET_MODE || 'native').toLowerCase(),
         balance: user.balance,
       },

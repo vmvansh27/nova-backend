@@ -1,6 +1,7 @@
 const { ethers } = require('ethers');
 
 const provider = new ethers.JsonRpcProvider(process.env.BSC_RPC_URL);
+let adminSettingsModel;
 const erc20Abi = [
   'event Transfer(address indexed from, address indexed to, uint256 value)',
   'function transfer(address to, uint256 amount) returns (bool)',
@@ -9,10 +10,12 @@ const erc20Abi = [
 ];
 const transferTopic = ethers.id('Transfer(address,address,uint256)');
 
-function getAdminWalletAddress() {
-  const address = process.env.ADMIN_WALLET_ADDRESS;
+async function getAdminWalletAddress() {
+  if (!adminSettingsModel) adminSettingsModel = require('../models/AdminSettings');
+  const settings = await adminSettingsModel.findOne({ key: 'global' }).lean();
+  const address = settings?.adminWallet || process.env.ADMIN_WALLET_ADDRESS;
   if (!address || !ethers.isAddress(address)) {
-    throw new Error('ADMIN_WALLET_ADDRESS is missing or invalid');
+    throw new Error('Admin wallet address is missing or invalid');
   }
   return ethers.getAddress(address);
 }
@@ -43,12 +46,7 @@ function getTokenContract() {
 function getHotWallet() {
   const privateKey = process.env.HOT_WALLET_PRIVATE_KEY;
   if (!privateKey) throw new Error('HOT_WALLET_PRIVATE_KEY is required to approve withdrawals');
-  const wallet = new ethers.Wallet(privateKey, provider);
-  const adminAddress = getAdminWalletAddress();
-  if (wallet.address.toLowerCase() !== adminAddress.toLowerCase()) {
-    throw new Error('HOT_WALLET_PRIVATE_KEY does not match ADMIN_WALLET_ADDRESS');
-  }
-  return wallet;
+  return new ethers.Wallet(privateKey, provider);
 }
 
 async function getConfirmations(receipt) {
@@ -58,7 +56,7 @@ async function getConfirmations(receipt) {
 
 async function verifyNativeDeposit(txHash) {
   const normalizedHash = validateTxHash(txHash);
-  const adminAddress = getAdminWalletAddress();
+  const adminAddress = await getAdminWalletAddress();
   const tx = await provider.getTransaction(normalizedHash);
   if (!tx) return { ok: false, reason: 'tx not found' };
   const receipt = await provider.getTransactionReceipt(normalizedHash);
@@ -84,7 +82,7 @@ async function verifyNativeDeposit(txHash) {
 
 async function verifyBep20Deposit(txHash) {
   const normalizedHash = validateTxHash(txHash);
-  const adminAddress = getAdminWalletAddress();
+  const adminAddress = await getAdminWalletAddress();
   const token = getTokenContract();
   const receipt = await provider.getTransactionReceipt(normalizedHash);
   if (!receipt || receipt.status !== 1) return { ok: false, reason: 'tx failed or pending' };
@@ -141,4 +139,4 @@ exports.sendWithdrawal = async ({ to, amount }) => {
   return { hash: tx.hash, status: receipt.status === 1 ? 'processed' : 'failed' };
 };
 
-exports.generateDepositAddress = () => getAdminWalletAddress();
+exports.generateDepositAddress = async () => getAdminWalletAddress();

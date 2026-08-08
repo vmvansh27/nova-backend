@@ -5,9 +5,9 @@ const Transaction = require('../models/Transaction');
 const WalletLog = require('../models/WalletLog');
 const { getPlatformDepositAddress, verifyDeposit } = require('../utils/bsc');
 
-router.get('/address', auth, (_req, res) => {
+router.get('/address', auth, async (_req, res) => {
   try {
-    res.json({ address: getPlatformDepositAddress() });
+    res.json({ address: await getPlatformDepositAddress() });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -21,8 +21,9 @@ router.post('/confirm', auth, body('hash').isString(), body('amount').optional()
     const exists = await Transaction.findOne({ hash });
     if (exists) return res.status(400).json({ error: 'Hash already used' });
 
+    const platformWalletAddress = await getPlatformDepositAddress();
     const result = process.env.DEMO_MODE === 'true'
-      ? { ok: true, value: Number(req.body.amount), from: 'demo', to: getPlatformDepositAddress(), confirmations: 1 }
+      ? { ok: true, value: Number(req.body.amount), from: 'demo', to: platformWalletAddress, confirmations: 1 }
       : await verifyDeposit(hash);
     if (!result.ok) return res.status(400).json({ error: result.reason });
     if (!Number.isFinite(result.value) || result.value <= 0) return res.status(400).json({ error: 'Invalid deposit amount' });
